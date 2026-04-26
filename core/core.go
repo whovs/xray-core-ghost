@@ -18,15 +18,15 @@ import (
 )
 
 var (
-	Version_x byte = 26
-	Version_y byte = 4
-	Version_z byte = 25
+	Version_x byte = 1
+	Version_y byte = 0
+	Version_z byte = 0
 )
 
 var (
-	build    = "Custom"
-	codename = "Xray, Penetrates Everything."
-	intro    = "A unified platform for anti-censorship."
+        build    = "DomainStats"
+        codename = "Xray, Penetrates Everything (Domain-Stats Edition)."
+		intro    = "A unified platform for anti-censorship."
 )
 
 func init() {

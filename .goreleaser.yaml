@@ -1,0 +1,42 @@
+# .goreleaser.yaml
+version: 1
+
+project_name: xray-core-ghost
+
+before:
+  hooks:
+    - go mod tidy
+
+builds:
+  - id: xray-core
+    main: ./main
+    binary: xray-linux-{{ .Arch }}
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - linux
+    goarch:
+      - amd64
+      - arm64
+      - 386
+    ldflags:
+      - -s -w -buildid=
+
+archives:
+  - format: binary
+    # We use 'binary' format to match your current download script logic
+    # which expects raw binaries named xray-linux-amd64, etc.
+    name_template: "xray-linux-{{ .Arch }}"
+
+checksum:
+  name_template: 'checksums.txt'
+
+snapshot:
+  name_template: "{{ .Tag }}-next"
+
+changelog:
+  sort: asc
+  filters:
+    exclude:
+      - '^docs:'
+      - '^test:'

@@ -182,6 +182,12 @@ func (d *DefaultDispatcher) getLink(ctx context.Context) (*transport.Link, *tran
 		if p.Stats.UserOnline {
 			trackOnlineIP(ctx, d.stats, user.Email, sessionInbound.Source.Address.String())
 		}
+
+		// Bandwidth tracking: wrap outboundLink.Reader (Uplink) and outboundLink.Writer (Downlink)
+		countingReader := NewCountingReader(outboundLink.Reader.(buf.TimeoutReader))
+		countingWriter := NewCountingWriter(outboundLink.Writer)
+		outboundLink.Reader = countingReader
+		outboundLink.Writer = countingWriter
 	}
 
 	return inboundLink, outboundLink
@@ -215,6 +221,16 @@ func WrapLink(ctx context.Context, policyManager policy.Manager, statsManager st
 		}
 		if p.Stats.UserOnline {
 			trackOnlineIP(ctx, statsManager, user.Email, sessionInbound.Source.Address.String())
+		}
+
+		// Bandwidth tracking for external links
+		if _, ok := link.Reader.(*CountingReader); !ok {
+			if tr, ok := link.Reader.(buf.TimeoutReader); ok {
+				link.Reader = NewCountingReader(tr)
+			}
+		}
+		if _, ok := link.Writer.(*CountingWriter); !ok {
+			link.Writer = NewCountingWriter(link.Writer)
 		}
 	}
 
@@ -285,11 +301,14 @@ func (d *DefaultDispatcher) Dispatch(ctx context.Context, destination net.Destin
 	sniffingRequest := content.SniffingRequest
 	inbound, outbound := d.getLink(ctx)
 	if !sniffingRequest.Enabled {
+		if sessionInbound := session.InboundFromContext(ctx); sessionInbound != nil && sessionInbound.User != nil {
+			EmitBandwidth(ctx, inbound, outbound, "", destination)
+		}
 		go d.routedDispatch(ctx, outbound, destination)
 	} else {
 		go func() {
 			cReader := &cachedReader{
-				reader: outbound.Reader.(*pipe.Reader),
+				reader: outbound.Reader.(buf.TimeoutReader),
 			}
 			outbound.Reader = cReader
 			result, err := sniffer(ctx, cReader, sniffingRequest.MetadataOnly, destination.Network)
@@ -312,6 +331,16 @@ func (d *DefaultDispatcher) Dispatch(ctx context.Context, destination net.Destin
 					ob.RouteTarget = destination
 				} else {
 					ob.Target = destination
+				}
+
+				// Emit bandwidth record with the sniffed domain
+				if sessionInbound := session.InboundFromContext(ctx); sessionInbound != nil && sessionInbound.User != nil {
+					EmitBandwidth(ctx, inbound, outbound, domain, destination)
+				}
+			} else if result != nil {
+				// Even if we don't override, we can still get the domain for bandwidth tracking
+				if sessionInbound := session.InboundFromContext(ctx); sessionInbound != nil && sessionInbound.User != nil {
+					EmitBandwidth(ctx, inbound, outbound, result.Domain(), destination)
 				}
 			}
 			d.routedDispatch(ctx, outbound, destination)
@@ -341,6 +370,9 @@ func (d *DefaultDispatcher) DispatchLink(ctx context.Context, destination net.De
 	outbound = WrapLink(ctx, d.policy, d.stats, outbound)
 	sniffingRequest := content.SniffingRequest
 	if !sniffingRequest.Enabled {
+		if sessionInbound := session.InboundFromContext(ctx); sessionInbound != nil && sessionInbound.User != nil {
+			EmitBandwidth(ctx, nil, outbound, "", destination)
+		}
 		d.routedDispatch(ctx, outbound, destination)
 	} else {
 		cReader := &cachedReader{
@@ -367,6 +399,16 @@ func (d *DefaultDispatcher) DispatchLink(ctx context.Context, destination net.De
 				ob.RouteTarget = destination
 			} else {
 				ob.Target = destination
+			}
+
+			// Emit bandwidth record with the sniffed domain
+			if sessionInbound := session.InboundFromContext(ctx); sessionInbound != nil && sessionInbound.User != nil {
+				EmitBandwidth(ctx, nil, outbound, domain, destination)
+			}
+		} else if result != nil {
+			// Even if we don't override, we can still get the domain for bandwidth tracking
+			if sessionInbound := session.InboundFromContext(ctx); sessionInbound != nil && sessionInbound.User != nil {
+				EmitBandwidth(ctx, nil, outbound, result.Domain(), destination)
 			}
 		}
 		d.routedDispatch(ctx, outbound, destination)

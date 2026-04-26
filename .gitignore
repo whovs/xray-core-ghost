@@ -28,6 +28,7 @@
 *.bz2
 
 # Go build binaries
+xray-*
 xray
 xray_softfloat
 mockgen
